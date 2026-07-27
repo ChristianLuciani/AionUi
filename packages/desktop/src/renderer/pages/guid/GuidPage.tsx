@@ -26,11 +26,10 @@ import { useGuidAssistantSelection } from './hooks/useGuidAssistantSelection';
 import { useGuidInput } from './hooks/useGuidInput';
 import { useGuidModelSelection } from './hooks/useGuidModelSelection';
 import { useGuidSend } from './hooks/useGuidSend';
-import { useOllamaLocalModels } from './hooks/useOllamaLocalModels';
 import { useTypewriterPlaceholder } from './hooks/useTypewriterPlaceholder';
 import { ensureBackendMcpCatalog } from '@/renderer/hooks/mcp/catalog';
 import { resolveGuidAssistantDefaults } from './utils/assistantDefaults';
-import { getOllamaModelWarning, warmUpOllamaModel } from './utils/ollamaLaunch';
+import { warmUpOllamaModel } from './utils/ollamaLaunch';
 import SpeechInputButton from '@/renderer/components/chat/SpeechInputButton';
 import { useOpenFileSelector } from '@/renderer/hooks/file/useOpenFileSelector';
 import { appendSpeechTranscript } from '@/renderer/hooks/system/useSpeechInput';
@@ -165,23 +164,11 @@ const GuidPage: React.FC = () => {
   const hasSelectedAssistant = selectedAssistantId !== null;
 
   // --- Ollama Launch state ---
-  // Model discovery talks to the local Ollama HTTP API, so the selector is
-  // desktop-only: in remote WebUI sessions the browser host is not the machine
-  // where agents spawn. `null` model = native launch (Ollama Launch off).
+  // The selector lives inside GuidModelSelector (tabs inside the ACP model
+  // dropdown). GuidPage owns the selection so useGuidSend can forward it.
+  // Gated on desktop-only: model discovery talks to localhost Ollama HTTP API.
   const ollamaLaunchAvailable = agentSelection.selectedAgentOllamaCompatible && isElectronDesktop();
   const [guidOllamaModel, setGuidOllamaModel] = useState<string | null>(null);
-  const { models: ollamaModels } = useOllamaLocalModels(ollamaLaunchAvailable);
-  // Annotate each local model with a compatibility warning for the selected
-  // agent (e.g. context window smaller than the agent's system prompt) so
-  // users learn *why* a model is likely to fail before sending a message.
-  const ollamaModelOptions = useMemo(
-    () =>
-      ollamaModels.map((details) => ({
-        name: details.name,
-        warning: getOllamaModelWarning(agentSelection.selectedAssistantBackend, details),
-      })),
-    [ollamaModels, agentSelection.selectedAssistantBackend]
-  );
   // Reset the Ollama Launch selection when switching assistants so a model
   // chosen for one agent is never silently applied to another.
   useEffect(() => {
@@ -630,6 +617,10 @@ const GuidPage: React.FC = () => {
       setSelectedAcpModel={setGuidSelectedAcpModel}
       thoughtLevelOption={isGeminiMode ? null : agentSelection.currentThoughtLevelOption}
       onThoughtLevelSelect={setGuidSelectedThoughtLevel}
+      ollamaCompatible={ollamaLaunchAvailable}
+      ollamaBackend={agentSelection.selectedAssistantBackend}
+      selectedOllamaModel={guidOllamaModel}
+      onSelectOllamaModel={handleOllamaModelSelect}
     />
   );
 
@@ -646,11 +637,6 @@ const GuidPage: React.FC = () => {
     <GuidActionRow
       files={guidInput.files}
       onFilesUploaded={guidInput.handleFilesUploaded}
-      ollamaLaunch={
-        ollamaLaunchAvailable
-          ? { models: ollamaModelOptions, selectedModel: guidOllamaModel, onSelect: handleOllamaModelSelect }
-          : null
-      }
       modelSelectorNode={modelSelectorNode}
       isGeminiMode={isGeminiMode}
       modelList={modelSelection.modelList}

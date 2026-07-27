@@ -10,7 +10,11 @@ import { getModelDisplayLabel } from '@/renderer/utils/model/agentLogo';
 import type { AgentRuntimeDerivedOption } from '@/renderer/utils/model/agentRuntimeCatalog';
 import type { AcpModelInfo } from '../types';
 import { getAvailableModels } from '../utils/modelUtils';
+import { useOllamaLocalModels } from '../hooks/useOllamaLocalModels';
+import { getOllamaModelWarning, type OllamaModelWarning } from '../utils/ollamaLaunch';
+import { useThemeContext } from '@/renderer/hooks/context/ThemeContext';
 import { Button, Dropdown, Menu, Tooltip } from '@arco-design/web-react';
+import ollamaLogo from '@/renderer/assets/logos/tools/ollama.svg';
 import { Brain, Down, Plus } from '@icon-park/react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
@@ -38,6 +42,12 @@ type GuidModelSelectorProps = {
   setSelectedAcpModel: React.Dispatch<React.SetStateAction<string | null>>;
   thoughtLevelOption?: AgentRuntimeDerivedOption | null;
   onThoughtLevelSelect?: (value: string) => void;
+
+  // Ollama Launch (desktop-only; only relevant for ACP agents flagged ollama_compatible)
+  ollamaCompatible?: boolean;
+  ollamaBackend?: string;
+  selectedOllamaModel?: string | null;
+  onSelectOllamaModel?: (model: string | null) => void;
 };
 
 /** Composite id for a provider+model pair, so the shared flat model list can track selection. */
@@ -53,10 +63,24 @@ const GuidModelSelector: React.FC<GuidModelSelectorProps> = ({
   setSelectedAcpModel,
   thoughtLevelOption,
   onThoughtLevelSelect,
+  ollamaCompatible = false,
+  ollamaBackend = '',
+  selectedOllamaModel = null,
+  onSelectOllamaModel = () => {},
 }) => {
   const { t } = useTranslation();
+  const { theme } = useThemeContext();
   const navigate = useNavigate();
   const defaultModelLabel = t('common.defaultModel');
+
+  const { models: ollamaModels, isLoading: ollamaLoading } = useOllamaLocalModels(ollamaCompatible);
+
+  const ollamaWarningText = (warning: OllamaModelWarning | null): string | undefined => {
+    if (!warning) return undefined;
+    return warning.kind === 'context'
+      ? t('guid.ollamaLaunch.contextWarning', { actual: warning.effectiveContext, required: warning.minContext })
+      : t('guid.ollamaLaunch.toolsWarning');
+  };
 
   // 过滤掉被禁用的 provider
   const enabledModelList = React.useMemo(() => {
@@ -107,8 +131,9 @@ const GuidModelSelector: React.FC<GuidModelSelectorProps> = ({
           currentValue: selectedThoughtLevelValue || null,
         }
       : null;
+  const displayModelLabel = selectedOllamaModel ?? acpButtonLabel;
   const combinedAcpButtonLabel = composeRuntimeSelectorLabel({
-    modelLabel: acpButtonLabel,
+    modelLabel: displayModelLabel,
     thoughtLevel: normalizedThoughtLevelOption,
   });
 
@@ -192,73 +217,168 @@ const GuidModelSelector: React.FC<GuidModelSelectorProps> = ({
     );
   }
 
+  // --- Ollama entry — last in the Model list ---
+  // When models are available: a SubMenu with a left flyout listing them.
+  // When Ollama is unreachable: a disabled item with a tooltip so the user
+  // sees the option exists but understands why it's not usable right now.
+  const ollamaModelEntry = (() => {
+    if (!ollamaCompatible) return null;
+
+    const ollamaTitle = (
+      <div className='flex items-center gap-6px'>
+        <img
+          src={ollamaLogo}
+          alt=''
+          style={{ width: 14, height: 14, filter: theme === 'dark' ? 'invert(1)' : undefined }}
+        />
+        <span>{selectedOllamaModel ? `Ollama: ${selectedOllamaModel}` : 'Ollama'}</span>
+      </div>
+    );
+
+    // No models and not in a loading state → disabled entry with tooltip.
+    if (ollamaModels.length === 0 && !ollamaLoading) {
+      return (
+        <Tooltip
+          content={t('guid.ollamaLaunch.noModels', { endpoint: '127.0.0.1:11434' })}
+          position='left'
+        >
+          <Menu.Item key='ollama-models' disabled style={{ opacity: 0.5, cursor: 'not-allowed' }}>
+            {ollamaTitle}
+          </Menu.Item>
+        </Tooltip>
+      );
+    }
+
+    // Models available or loading → full SubMenu.
+    return (
+      <Menu.SubMenu
+        key='ollama-models'
+        triggerProps={RUNTIME_SUBMENU_TRIGGER_PROPS}
+        title={ollamaTitle}
+      >
+        <Menu.Item key='ollama-off' onClick={() => onSelectOllamaModel(null)}>
+          <RuntimeSelectorCheckedItem selected={!selectedOllamaModel}>
+            {t('guid.ollamaLaunch.off')}
+          </RuntimeSelectorCheckedItem>
+        </Menu.Item>
+        {ollamaModels.map((details) => {
+          const warning = getOllamaModelWarning(ollamaBackend, details);
+          return (
+            <Menu.Item key={`ollama-${details.name}`} onClick={() => onSelectOllamaModel(details.name)}>
+              <RuntimeSelectorCheckedItem
+                selected={details.name === selectedOllamaModel}
+                description={ollamaWarningText(warning)}
+              >
+                {warning ? (
+                  <span className='inline-flex items-center gap-4px'>
+                    <span aria-hidden='true' style={{ color: iconColors.warning, lineHeight: 0 }}>
+                      ⚠
+                    </span>
+                    {details.name}
+                  </span>
+                ) : (
+                  details.name
+                )}
+              </RuntimeSelectorCheckedItem>
+            </Menu.Item>
+          );
+        })}
+        {ollamaLoading && ollamaModels.length === 0 && (
+          <Menu.Item key='ollama-empty' disabled>
+            <span className='text-13px text-t-secondary whitespace-normal'>
+              {t('guid.ollamaLaunch.loading', { defaultValue: 'Looking for local models…' })}
+            </span>
+          </Menu.Item>
+        )}
+      </Menu.SubMenu>
+    );
+  })();
+
   // ACP cached model selector
   if (currentAcpCachedModelInfo && currentAcpCachedModelInfo.available_models?.length > 0) {
     if (currentAcpCachedModelInfo.available_models.length > 0) {
-      const modelListNode = (
-        <RuntimeSelectorModelList
-          models={currentAcpCachedModelInfo.available_models}
-          currentModelId={selectedAcpModel}
-          onSelect={(modelId) => setSelectedAcpModel(modelId)}
-        />
+      const handleCloudModelSelect = (modelId: string) => {
+        setSelectedAcpModel(modelId);
+        // Selecting a cloud model clears any Ollama Launch override.
+        onSelectOllamaModel(null);
+      };
+
+      const modelSubmenuContent = (
+        <>
+          <RuntimeSelectorModelList
+            models={currentAcpCachedModelInfo.available_models}
+            currentModelId={selectedOllamaModel ? null : selectedAcpModel}
+            onSelect={handleCloudModelSelect}
+          />
+          {ollamaModelEntry}
+        </>
+      );
+
+      const acpDropdownContent = normalizedThoughtLevelOption ? (
+        <>
+          <Menu.SubMenu
+            key='model'
+            triggerProps={RUNTIME_SUBMENU_TRIGGER_PROPS}
+            title={
+              <RuntimeSelectorSubMenuTitle
+                label={t('common.model', { defaultValue: 'Model' })}
+                value={displayModelLabel}
+              />
+            }
+          >
+            {modelSubmenuContent}
+          </Menu.SubMenu>
+          <Menu.SubMenu
+            key='thought-level'
+            triggerProps={RUNTIME_SUBMENU_TRIGGER_PROPS}
+            title={
+              <RuntimeSelectorSubMenuTitle
+                label={t('agent.thoughtLevel.label')}
+                value={getCurrentThoughtLevelLabel(normalizedThoughtLevelOption)}
+              />
+            }
+          >
+            {normalizedThoughtLevelOption.options.map((item) => (
+              <Menu.Item
+                key={item.value}
+                className={item.value === normalizedThoughtLevelOption.currentValue ? '!bg-2' : ''}
+                onClick={() => onThoughtLevelSelect?.(item.value)}
+              >
+                <RuntimeSelectorCheckedItem
+                  selected={item.value === normalizedThoughtLevelOption.currentValue}
+                  description={item.description}
+                >
+                  {item.label}
+                </RuntimeSelectorCheckedItem>
+              </Menu.Item>
+            ))}
+          </Menu.SubMenu>
+        </>
+      ) : (
+        modelSubmenuContent
       );
 
       return (
         <Dropdown
           trigger='click'
           droplist={
-            <Menu selectedKeys={selectedAcpModel ? [selectedAcpModel] : []}>
-              {normalizedThoughtLevelOption ? (
-                <>
-                  {/* Two-level layout: model row on top, thought-level row below;
-                      each expands into a left-side submenu. */}
-                  <Menu.SubMenu
-                    key='model'
-                    triggerProps={RUNTIME_SUBMENU_TRIGGER_PROPS}
-                    title={
-                      <RuntimeSelectorSubMenuTitle
-                        label={t('common.model', { defaultValue: 'Model' })}
-                        value={acpButtonLabel}
-                      />
-                    }
-                  >
-                    {modelListNode}
-                  </Menu.SubMenu>
-                  <Menu.SubMenu
-                    key='thought-level'
-                    triggerProps={RUNTIME_SUBMENU_TRIGGER_PROPS}
-                    title={
-                      <RuntimeSelectorSubMenuTitle
-                        label={t('agent.thoughtLevel.label')}
-                        value={getCurrentThoughtLevelLabel(normalizedThoughtLevelOption)}
-                      />
-                    }
-                  >
-                    {normalizedThoughtLevelOption.options.map((item) => (
-                      <Menu.Item
-                        key={item.value}
-                        className={item.value === normalizedThoughtLevelOption.currentValue ? '!bg-2' : ''}
-                        onClick={() => onThoughtLevelSelect?.(item.value)}
-                      >
-                        <RuntimeSelectorCheckedItem
-                          selected={item.value === normalizedThoughtLevelOption.currentValue}
-                          description={item.description}
-                        >
-                          {item.label}
-                        </RuntimeSelectorCheckedItem>
-                      </Menu.Item>
-                    ))}
-                  </Menu.SubMenu>
-                </>
-              ) : (
-                modelListNode
-              )}
+            <Menu selectedKeys={selectedAcpModel && !selectedOllamaModel ? [selectedAcpModel] : []}>
+              {acpDropdownContent}
             </Menu>
           }
         >
           <Button className={'sendbox-model-btn guid-config-btn'} shape='round' size='small'>
             <span className='flex items-center gap-6px min-w-0'>
-              <Brain theme='outline' size='14' fill={iconColors.secondary} className='shrink-0' />
+              {selectedOllamaModel ? (
+                <img
+                  src={ollamaLogo}
+                  alt='Ollama'
+                  style={{ width: 14, height: 14, filter: theme === 'dark' ? 'invert(1)' : undefined }}
+                  className='shrink-0'
+                />
+              ) : (
+                <Brain theme='outline' size='14' fill={iconColors.secondary} className='shrink-0' />
+              )}
               <span className='guid-model-label'>{combinedAcpButtonLabel}</span>
               <Down theme='outline' size='12' fill={iconColors.secondary} className='shrink-0' />
             </span>

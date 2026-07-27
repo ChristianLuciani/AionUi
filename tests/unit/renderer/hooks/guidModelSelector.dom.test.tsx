@@ -48,6 +48,10 @@ vi.mock('@icon-park/react', () => ({
   Search: () => <span aria-hidden='true'>search</span>,
 }));
 
+vi.mock('@/renderer/hooks/context/ThemeContext', () => ({
+  useThemeContext: () => ({ theme: 'light' }),
+}));
+
 vi.mock('@arco-design/web-react', () => {
   const Menu = Object.assign(
     ({ children, className }: { children?: React.ReactNode; className?: string }) => (

@@ -869,6 +869,8 @@ export type I18nKey =
   | 'guid.defaultPrompts.tools'
   | 'guid.defaultPrompts.understand'
   | 'guid.ollamaLaunch.contextWarning'
+  | 'guid.ollamaLaunch.loading'
+  | 'guid.ollamaLaunch.localTab'
   | 'guid.ollamaLaunch.noModels'
   | 'guid.ollamaLaunch.off'
   | 'guid.ollamaLaunch.title'

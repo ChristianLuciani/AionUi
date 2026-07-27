@@ -35,6 +35,8 @@
   "ollamaLaunch": {
     "title": "Ollama Launch",
     "off": "Aus",
+    "localTab": "Ollama",
+    "loading": "Suche nach lokalen Modellen …",
     "tooltip": "Diesen Agenten mit lokalen Ollama-Modellen ausführen — keine API-Schlüssel erforderlich",
     "noModels": "Keine Ollama-Modelle unter {{endpoint}} gefunden. Stellen Sie sicher, dass Ollama auf dem Standardport läuft, und laden Sie zuerst ein Modell.",
     "contextWarning": "Kann fehlschlagen: Dieses Modell lädt mit einem Kontext von {{actual}} Token; dieser Agent benötigt etwa {{required}}.",

@@ -17,6 +17,8 @@
   "ollamaLaunch": {
     "title": "Ollama Launch",
     "off": "Desativado",
+    "localTab": "Ollama",
+    "loading": "Procurando modelos locais…",
     "tooltip": "Execute este agente com modelos locais do Ollama — sem necessidade de chaves de API",
     "noModels": "Nenhum modelo do Ollama encontrado em {{endpoint}}. Verifique se o Ollama está em execução na porta padrão e baixe um modelo primeiro.",
     "contextWarning": "Pode falhar: este modelo carrega com um contexto de {{actual}} tokens; este agente precisa de cerca de {{required}}.",
